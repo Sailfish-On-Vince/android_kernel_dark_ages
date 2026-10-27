@@ -69,6 +69,7 @@
 #include <linux/uaccess.h>
 #include <linux/pid_namespace.h>
 #include <linux/security.h>
+#include <linux/selinux.h>
 #include <linux/spinlock.h>
 #include <linux/kthread.h>
 
@@ -3138,6 +3139,16 @@ static void binder_transaction(struct binder_proc *proc,
 
 		security_task_getsecid(proc->tsk, &secid);
 		ret = security_secid_to_secctx(secid, &secctx, &secctx_sz);
+		/*
+		 * With SELinux disabled, there may be no LSM providing a
+		 * security context. Allow the transaction without a context
+		 * only in that case; preserve all other conversion failures.
+		 */
+		if (ret == -EOPNOTSUPP && !selinux_is_enabled()) {
+			secctx = NULL;
+			secctx_sz = 0;
+			ret = 0;
+		}
 		if (ret) {
 			return_error = BR_FAILED_REPLY;
 			return_error_param = ret;
