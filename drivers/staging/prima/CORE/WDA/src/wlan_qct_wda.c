@@ -52,6 +52,8 @@
 2010-12-30    smiryala     UMAC convergence changes
 2010-08-19    adwivedi    WLAN DAL AL(WDA) layer for Prima
 ===========================================================================*/
+#include <linux/printk.h>
+
 #include "vos_mq.h" 
 #include "vos_api.h" 
 #include "vos_packet.h" 
@@ -531,6 +533,8 @@ void WDA_wdiStartCallback(WDI_StartRspParamsType *wdiRspParams,
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_FATAL,
                  "%s: Invoked with invalid pVosContext", __func__ );
+      pr_err("WLAN_INIT_DIAG: %s invalid context at line %d\n",
+             __func__, __LINE__);
       return;
    }
    wdaContext = VOS_GET_WDA_CTXT(pVosContext);
@@ -538,8 +542,21 @@ void WDA_wdiStartCallback(WDI_StartRspParamsType *wdiRspParams,
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_FATAL,
                  "%s: Invoked with invalid wdaContext", __func__ );
+      pr_err("WLAN_INIT_DIAG: %s invalid context at line %d\n",
+             __func__, __LINE__);
       return;
    }
+   pr_info("WLAN_INIT_DIAG: callback status=%d state=%d "
+           "compiled=%u.%u.%u.%u reported=%u.%u.%u.%u\n",
+           (int)wdiRspParams->wdiStatus, (int)wdaContext->wdaState,
+           (unsigned int)wdiRspParams->wlanCompiledVersion.major,
+           (unsigned int)wdiRspParams->wlanCompiledVersion.minor,
+           (unsigned int)wdiRspParams->wlanCompiledVersion.version,
+           (unsigned int)wdiRspParams->wlanCompiledVersion.revision,
+           (unsigned int)wdiRspParams->wlanReportedVersion.major,
+           (unsigned int)wdiRspParams->wlanReportedVersion.minor,
+           (unsigned int)wdiRspParams->wlanReportedVersion.version,
+           (unsigned int)wdiRspParams->wlanReportedVersion.revision);
    if (WDI_STATUS_SUCCESS != wdiRspParams->wdiStatus)
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_FATAL,
@@ -574,6 +591,8 @@ void WDA_wdiStartCallback(WDI_StartRspParamsType *wdiRspParams,
            sizeof(wdaContext->wcnssHardwareVersionString));
    /* Notify WDA_start that WDI_Start has completed */
    status = vos_event_set(&wdaContext->wdaWdiEvent);
+   pr_info("WLAN_INIT_DIAG: callback event_set=%d state=%d\n",
+           (int)status, (int)wdaContext->wdaState);
    if (VOS_STATUS_SUCCESS != status)
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_FATAL,
@@ -596,6 +615,8 @@ VOS_STATUS WDA_start(v_PVOID_t pVosContext)
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
                  "%s: Invoked with invalid pVosContext", __func__ );
+      pr_err("WLAN_INIT_DIAG: %s failed at line %d\n",
+             __func__, __LINE__);
       return VOS_STATUS_E_FAILURE;
    }
    wdaContext = VOS_GET_WDA_CTXT(pVosContext);
@@ -603,6 +624,8 @@ VOS_STATUS WDA_start(v_PVOID_t pVosContext)
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
                  "%s: Invoked with invalid wdaContext", __func__ );
+      pr_err("WLAN_INIT_DIAG: %s failed at line %d\n",
+             __func__, __LINE__);
       return VOS_STATUS_E_FAILURE;
    }
    /* Non-FTM mode, WDA status for START must be INIT
@@ -613,6 +636,8 @@ VOS_STATUS WDA_start(v_PVOID_t pVosContext)
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
                  "%s: Invoked from wrong state %d",
                  __func__, wdaContext->wdaState );
+      pr_err("WLAN_INIT_DIAG: %s failed at line %d\n",
+             __func__, __LINE__);
       return VOS_STATUS_E_FAILURE;
    }
    /* initialize the wdiStartParam.  Note that we can create this on
@@ -620,12 +645,17 @@ VOS_STATUS WDA_start(v_PVOID_t pVosContext)
       times out */
    vos_mem_set(&wdiStartParam, sizeof(wdiStartParam), 0);
    wdiStartParam.wdiDriverType = wdaContext->driverMode;
+   pr_info("WLAN_INIT_DIAG: start state=%d mode=%d\n",
+           (int)wdaContext->wdaState, (int)wdaContext->driverMode);
    /* prepare the config TLV for the WDI */
    status = WDA_prepareConfigTLV(pVosContext, &wdiStartParam);
+   pr_info("WLAN_INIT_DIAG: prepareConfigTLV status=%d\n", (int)status);
    if ( !VOS_IS_STATUS_SUCCESS(status) )
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
                  "%s: Unable to prepare Config TLV", __func__ );
+      pr_err("WLAN_INIT_DIAG: %s failed at line %d\n",
+             __func__, __LINE__);
       return VOS_STATUS_E_FAILURE;
    }
    /* note from here onwards if an error occurs we must
@@ -639,16 +669,22 @@ VOS_STATUS WDA_start(v_PVOID_t pVosContext)
    wdiStatus = WDI_Start(&wdiStartParam,
                          (WDI_StartRspCb)WDA_wdiStartCallback,
                          (v_VOID_t *)pVosContext);
+   pr_info("WLAN_INIT_DIAG: WDI_Start return=%d\n", (int)wdiStatus);
    if ( IS_WDI_STATUS_FAILURE(wdiStatus) )
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_FATAL,
                  "%s: WDI Start failed", __func__ );
       vos_mem_free(wdiStartParam.pConfigBuffer);
+      pr_err("WLAN_INIT_DIAG: %s failed at line %d\n",
+             __func__, __LINE__);
       return VOS_STATUS_E_FAILURE;
    }
    /* wait for WDI start to invoke our callback */
    status = vos_wait_single_event( &wdaContext->wdaWdiEvent,
                                    WDA_WDI_START_TIMEOUT );
+   pr_info("WLAN_INIT_DIAG: start wait status=%d state=%d timeout=%u\n",
+           (int)status, (int)wdaContext->wdaState,
+           (unsigned int)WDA_WDI_START_TIMEOUT);
    if ( !VOS_IS_STATUS_SUCCESS(status) )
    {
       if ( VOS_STATUS_E_TIMEOUT == status )
@@ -673,12 +709,15 @@ VOS_STATUS WDA_start(v_PVOID_t pVosContext)
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
                  "%s: WDI_Start() failure detected", __func__ );
+      pr_err("WLAN_INIT_DIAG: %s failed at line %d\n",
+             __func__, __LINE__);
       return VOS_STATUS_E_FAILURE;
    }
    /* FTM mode does not need to monitor BA activity */
    if ( eDRIVER_TYPE_MFG != wdaContext->driverMode )
    {
       status = wdaCreateTimers(wdaContext) ;
+      pr_info("WLAN_INIT_DIAG: createTimers status=%d\n", (int)status);
       if(VOS_STATUS_SUCCESS == status)
       {
          wdaContext->wdaTimersCreated = VOS_TRUE;
@@ -693,6 +732,8 @@ VOS_STATUS WDA_start(v_PVOID_t pVosContext)
    {
       vos_event_init(&wdaContext->ftmStopDoneEvent);
    }
+   pr_info("WLAN_INIT_DIAG: WDA_start final status=%d state=%d\n",
+           (int)status, (int)wdaContext->wdaState);
    return status;
 }
 

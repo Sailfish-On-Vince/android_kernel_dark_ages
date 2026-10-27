@@ -69,6 +69,8 @@
 /*----------------------------------------------------------------------------
  * Include Files
  * -------------------------------------------------------------------------*/
+#include <linux/printk.h>
+
 #include "wlan_qct_wdi.h"
 #include "wlan_qct_wdi_i.h"
 #include "wlan_qct_wdi_sta.h"
@@ -17037,6 +17039,8 @@ WDI_ProcessStartRsp
   {
      WPAL_TRACE( eWLAN_MODULE_DAL_CTRL, eWLAN_PAL_TRACE_LEVEL_WARN,
                  "%s: Invalid parameters", __func__);
+     pr_err("WLAN_INIT_DIAG: StartRsp rejected at line %d\n",
+            __LINE__);
      WDI_ASSERT(0);
      return WDI_STATUS_E_FAILURE;
   }
@@ -17044,12 +17048,17 @@ WDI_ProcessStartRsp
   /*-------------------------------------------------------------------------
     Extract response and send it to UMAC
   -------------------------------------------------------------------------*/
+  pr_info("WLAN_INIT_DIAG: StartRsp length=%u expected=%zu\n",
+          (unsigned int)pEventData->uEventDataSize,
+          sizeof(tHalMacStartRspParams));
   if ( sizeof(tHalMacStartRspParams) > pEventData->uEventDataSize )
   {
      // not enough data was received
      WPAL_TRACE( eWLAN_MODULE_DAL_CTRL, eWLAN_PAL_TRACE_LEVEL_FATAL,
                  "Invalid response length in Start Resp Expect %zx Rcvd %x",
                  sizeof(tHalMacStartRspParams), pEventData->uEventDataSize);
+     pr_err("WLAN_INIT_DIAG: StartRsp rejected at line %d\n",
+            __LINE__);
      WDI_ASSERT(0);
      return WDI_STATUS_E_FAILURE;
   }
@@ -17059,6 +17068,15 @@ WDI_ProcessStartRsp
     main Response Handling procedure
   -------------------------------------------------------------------------*/
   startRspParams = (tHalMacStartRspParams *) pEventData->pEventData;
+  pr_info("WLAN_INIT_DIAG: StartRsp halStatus=%u (0x%x) name=%s "
+          "mapped=%d maxBssids=%u maxStations=%u\n",
+          (unsigned int)startRspParams->status,
+          (unsigned int)startRspParams->status,
+          WDI_getHALStatusMsgString(startRspParams->status),
+          (int)WDI_HAL_2_WDI_STATUS(startRspParams->status),
+          (unsigned int)startRspParams->ucMaxBssids,
+          (unsigned int)startRspParams->ucMaxStations);
+
 
   wdiRspParams.ucMaxBssids   = startRspParams->ucMaxBssids;
   wdiRspParams.ucMaxStations = startRspParams->ucMaxStations;

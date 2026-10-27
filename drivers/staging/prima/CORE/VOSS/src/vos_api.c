@@ -52,6 +52,8 @@
 /*--------------------------------------------------------------------------
   Include Files
   ------------------------------------------------------------------------*/
+#include <linux/printk.h>
+
 #include <vos_mq.h>
 #include "vos_sched.h"
 #include <vos_api.h>
@@ -908,6 +910,8 @@ VOS_STATUS vos_start( v_CONTEXT_t vosContext )
 
   /* Start the WDA */
   vStatus = WDA_start(pVosContext);
+  pr_info("WLAN_INIT_DIAG: vos_start WDA_start status=%d\n",
+          (int)vStatus);
   if ( vStatus != VOS_STATUS_SUCCESS )
   {
      VOS_TRACE( VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
