@@ -139,23 +139,30 @@ extern bool lcm_ffbm_mode;
 
 int synaptics_gesture_switch_lansi(struct input_dev *dev, unsigned int type, unsigned int code, int value)
 {
+	bool enabled;
 
-	unsigned int input ;
-	if (type == EV_SYN && code == SYN_CONFIG)
-	{
-		if (value == WAKEUP_OFF){
-			synaptics_gesture_func_on_lansi = false;
-			input = 0;
-		}else if (value == WAKEUP_ON){
-			synaptics_gesture_func_on_lansi  = true;
-			input = 1;
-		}
+	if (type != EV_SYN || code != SYN_CONFIG)
+		return 0;
+
+	switch (value) {
+	case WAKEUP_OFF:
+		enabled = false;
+		break;
+	case WAKEUP_ON:
+		enabled = true;
+		break;
+	default:
+		return 0;
 	}
-	if (rmi4_data->f11_wakeup_gesture || rmi4_data->f12_wakeup_gesture)
-		rmi4_data->enable_wakeup_gesture = input;
+
+	if (rmi4_data->f11_wakeup_gesture || rmi4_data->f12_wakeup_gesture) {
+		rmi4_data->enable_wakeup_gesture = enabled;
+		synaptics_gesture_func_on_lansi = enabled;
+	}
 
 	return 0;
 }
+
 #endif
 
 
@@ -3359,10 +3366,10 @@ flash_prog_mode:
 		}
 	}
 
-	if (rmi4_data->f11_wakeup_gesture || rmi4_data->f12_wakeup_gesture){
+	/* Preserve the userspace gesture policy across reset and ESD recovery. */
+	if (!rmi4_data->f11_wakeup_gesture && !rmi4_data->f12_wakeup_gesture)
 		rmi4_data->enable_wakeup_gesture = false;
-		synaptics_gesture_func_on_lansi = false;
-	}
+	synaptics_gesture_func_on_lansi = rmi4_data->enable_wakeup_gesture;
 
 	synaptics_rmi4_set_configured(rmi4_data);
 
@@ -4630,12 +4637,15 @@ static void synaptics_rmi4_early_suspend(struct early_suspend *h)
 			container_of(h, struct synaptics_rmi4_data,
 			early_suspend);
 	unsigned char device_ctrl;
+	int retval;
 
 	if (rmi4_data->stay_awake)
 		return;
 
 
 	if (rmi4_data->enable_wakeup_gesture) {
+		if (rmi4_data->sensor_sleep)
+			synaptics_rmi4_sleep_enable(rmi4_data, false);
 		if (rmi4_data->no_sleep_setting) {
 			synaptics_rmi4_reg_read(rmi4_data,
 					rmi4_data->f01_ctrl_base_addr,
@@ -4648,7 +4658,21 @@ static void synaptics_rmi4_early_suspend(struct early_suspend *h)
 					sizeof(device_ctrl));
 		}
 		synaptics_rmi4_wakeup_gesture(rmi4_data, true);
-		enable_irq_wake(rmi4_data->irq);
+		if (!rmi4_data->irq_enabled) {
+			retval = synaptics_rmi4_irq_enable(rmi4_data, true, false);
+			if (retval < 0)
+				return;
+		}
+		if (!rmi4_data->wakeup_irq_enabled) {
+			retval = enable_irq_wake(rmi4_data->irq);
+			if (retval < 0) {
+				dev_err(rmi4_data->pdev->dev.parent,
+						"%s: Failed to enable wake IRQ: %d\n",
+						__func__, retval);
+				return;
+			}
+			rmi4_data->wakeup_irq_enabled = true;
+		}
 		goto exit;
 	}
 
@@ -4698,10 +4722,12 @@ static void synaptics_rmi4_late_resume(struct early_suspend *h)
 	if (rmi4_data->stay_awake)
 		return;
 
-	if (rmi4_data->enable_wakeup_gesture) {
+	if (rmi4_data->wakeup_irq_enabled) {
 		disable_irq_wake(rmi4_data->irq);
-		goto exit;
+		rmi4_data->wakeup_irq_enabled = false;
 	}
+	if (rmi4_data->f11_wakeup_gesture || rmi4_data->f12_wakeup_gesture)
+		synaptics_rmi4_wakeup_gesture(rmi4_data, false);
 
 	rmi4_data->current_page = MASK_8BIT;
 
@@ -4710,7 +4736,6 @@ static void synaptics_rmi4_late_resume(struct early_suspend *h)
 		synaptics_rmi4_irq_enable(rmi4_data, true, false);
 	}
 
-exit:
 #ifdef FB_READY_RESET
 	if (rmi4_data->suspend) {
 		retval = synaptics_rmi4_reset_device(rmi4_data, false);
@@ -4766,6 +4791,7 @@ static int synaptics_rmi4_suspend(struct device *dev)
 	struct synaptics_rmi4_exp_fhandler *exp_fhandler;
 	struct synaptics_rmi4_data *rmi4_data = dev_get_drvdata(dev);
 	unsigned char device_ctrl;
+	int retval;
 
 	if (rmi4_data->stay_awake)
 		return 0;
@@ -4777,6 +4803,8 @@ static int synaptics_rmi4_suspend(struct device *dev)
 
 
 	if (rmi4_data->enable_wakeup_gesture) {
+		if (rmi4_data->sensor_sleep)
+			synaptics_rmi4_sleep_enable(rmi4_data, false);
 		printk("[zmc] enable_wakeup_gesture is on\n");
 		if (rmi4_data->no_sleep_setting) {
 			synaptics_rmi4_reg_read(rmi4_data,
@@ -4790,7 +4818,21 @@ static int synaptics_rmi4_suspend(struct device *dev)
 					sizeof(device_ctrl));
 		}
 		synaptics_rmi4_wakeup_gesture(rmi4_data, true);
-		enable_irq_wake(rmi4_data->irq);
+		if (!rmi4_data->irq_enabled) {
+			retval = synaptics_rmi4_irq_enable(rmi4_data, true, false);
+			if (retval < 0)
+				return retval;
+		}
+		if (!rmi4_data->wakeup_irq_enabled) {
+			retval = enable_irq_wake(rmi4_data->irq);
+			if (retval < 0) {
+				dev_err(rmi4_data->pdev->dev.parent,
+						"%s: Failed to enable wake IRQ: %d\n",
+						__func__, retval);
+				return retval;
+			}
+			rmi4_data->wakeup_irq_enabled = true;
+		}
 		goto exit;
 	}
 
@@ -4842,11 +4884,13 @@ static int synaptics_rmi4_resume(struct device *dev)
 	if (rmi4_data->stay_awake)
 		return 0;
 
-	if (rmi4_data->enable_wakeup_gesture) {
+	/* Always restore touch, even if policy changed while suspended. */
+	if (rmi4_data->wakeup_irq_enabled) {
 		disable_irq_wake(rmi4_data->irq);
-		synaptics_rmi4_wakeup_gesture(rmi4_data, false);
-		goto exit;
+		rmi4_data->wakeup_irq_enabled = false;
 	}
+	if (rmi4_data->f11_wakeup_gesture || rmi4_data->f12_wakeup_gesture)
+		synaptics_rmi4_wakeup_gesture(rmi4_data, false);
 
 	rmi4_data->current_page = MASK_8BIT;
 
@@ -4860,7 +4904,6 @@ static int synaptics_rmi4_resume(struct device *dev)
 
 
 
-exit:
 #ifdef FB_READY_RESET
 	retval = synaptics_rmi4_reset_device(rmi4_data, false);
 	if (retval < 0) {
