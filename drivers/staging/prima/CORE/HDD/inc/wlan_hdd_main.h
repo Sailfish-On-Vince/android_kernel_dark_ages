@@ -1768,6 +1768,9 @@ struct hdd_context_s
     // Flag keeps track of wiphy suspend/resume
     v_BOOL_t isWiphySuspended;
 
+	/* Firmware suspend entered by cfg80211 rather than the private ioctl. */
+	v_BOOL_t cfg80211_suspend_owned;
+
     // Indicates about pending sched_scan results
     v_BOOL_t isSchedScanUpdatePending;
     /*

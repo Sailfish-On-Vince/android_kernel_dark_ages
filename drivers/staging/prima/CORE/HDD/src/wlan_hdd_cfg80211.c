@@ -21929,12 +21929,11 @@ int __wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
     MTRACE(vos_trace(VOS_MODULE_ID_HDD, TRACE_CODE_HDD_CFG80211_RESUME_WLAN,
                      NO_SESSION, pHddCtx->isWiphySuspended));
 
-    if (pHddCtx->is_ap_mode_wow_supported)
-    {
-        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-                  "%s: Resume SoftAP", __func__);
-           hdd_set_wlan_suspend_mode(false);
-    }
+	if (pHddCtx->cfg80211_suspend_owned ||
+	    pHddCtx->is_ap_mode_wow_supported) {
+		hdd_set_wlan_suspend_mode(false);
+		pHddCtx->cfg80211_suspend_owned = FALSE;
+	}
 
     spin_lock(&pHddCtx->schedScan_lock);
     pHddCtx->isWiphySuspended = FALSE;
@@ -22020,11 +22019,18 @@ int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
         return ret;
     }
 
-    if (pHddCtx->is_ap_mode_wow_supported) {
-        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-                  "%s: Suspend SoftAP", __func__);
-         hdd_set_wlan_suspend_mode(true);
-    }
+	/*
+	 * Native Linux clients do not send Android's SETSUSPENDMODE ioctl.
+	 * Configure firmware offloads and receive filters before the parent
+	 * platform device suspends the WLAN worker threads. Preserve a suspend
+	 * already requested through the private ioctl across cfg80211 resume.
+	 */
+	if (!pHddCtx->hdd_wlan_suspended) {
+		hdd_set_wlan_suspend_mode(true);
+		if (!pHddCtx->hdd_wlan_suspended)
+			return -EBUSY;
+		pHddCtx->cfg80211_suspend_owned = TRUE;
+	}
 
 
     MTRACE(vos_trace(VOS_MODULE_ID_HDD,
